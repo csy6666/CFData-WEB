@@ -107,7 +107,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			session.sendWSMessage("version_info", map[string]interface{}{"version": appVersion, "releaseURL": releaseLatestURL, "error": err.Error()})
 			return
 		}
-		session.sendWSMessage("version_info", map[string]interface{}{"version": appVersion, "latest": info.TagName, "releaseURL": releaseLatestURL, "hasUpdate": versionIsOlder(appVersion, info.TagName)})
+		session.sendWSMessage("version_info", versionInfoPayload(info))
 	})
 
 	safeHandler := func(name string, fn func(json.RawMessage), data json.RawMessage) {
@@ -417,6 +417,26 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			country, countryOK := detectCloudflareTraceCountry(ctx)
 			cancel()
 			session.sendWSMessage("proxy_country_result", map[string]interface{}{"cfCountry": country, "proxyWarning": !countryOK || shouldWarnProxyCountry(country), "geoCheckOK": countryOK})
+		},
+		"start_desktop_update": func(data json.RawMessage) {
+			if anyTaskRunning() {
+				session.sendWSMessage("desktop_update_error", map[string]interface{}{"message": "请先停止当前任务，再进行桌面更新"})
+				return
+			}
+			safeGo("desktop-update", session, func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+				defer cancel()
+				version, err := startOneClickDesktopUpdate(ctx, func(message string) {
+					session.sendWSMessage("desktop_update_status", map[string]interface{}{"message": message})
+				})
+				if err != nil {
+					recordDebugError("desktop_update", err.Error())
+					session.sendWSMessage("desktop_update_error", map[string]interface{}{"message": "桌面更新失败: " + err.Error()})
+					return
+				}
+				session.sendWSMessage("desktop_update_ready", map[string]interface{}{"version": version})
+				requestDesktopUpdateShutdown()
+			})
 		},
 		"github_upload": func(data json.RawMessage) {
 			var params githubUploadRequest

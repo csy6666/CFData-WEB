@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,11 +18,22 @@ import (
 
 var webUser, webPassword string
 var webSessionMinutes int
-var boolFlagNames = []string{"cli", "nsbtls", "progress", "nocolor", "compactipv4", "nsbcompact", "github", "nsbqualified", "skipgeo"}
+var desktopBuild = "false"
+var desktopMode bool
+var boolFlagNames = []string{"cli", "desktop", "nsbtls", "progress", "nocolor", "compactipv4", "nsbcompact", "github", "nsbqualified", "skipgeo"}
 
 type latestReleaseInfo struct {
-	TagName string `json:"tag_name"`
-	HTMLURL string `json:"html_url"`
+	TagName string         `json:"tag_name"`
+	HTMLURL string         `json:"html_url"`
+	Assets  []releaseAsset `json:"assets"`
+}
+
+type releaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
+	State              string `json:"state"`
+	Size               int64  `json:"size"`
 }
 
 func getLatestRelease(ctx context.Context) (latestReleaseInfo, error) {
@@ -139,15 +151,41 @@ func hasNoColorArg() bool {
 	return false
 }
 
+func desktopDefaultPort() int {
+	if desktopBuild == "true" {
+		return 0
+	}
+	return 13335
+}
+
+func resolveListenAddress(host string, port int) (string, string) {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Sprintf(":%d", port), "localhost"
+	}
+	return fmt.Sprintf("%s:%d", host, port), host
+}
+
 func main() {
+	if runDesktopUpdateApplierIfRequested(os.Args[1:]) {
+		return
+	}
+	if err := useDesktopPortableWorkingDirectory(); err != nil {
+		fmt.Printf("无法设置便携工作目录: %v\n", err)
+		if desktopBuild == "true" {
+			showDesktopError("CFData Desktop", fmt.Sprintf("无法设置便携工作目录: %v", err))
+			return
+		}
+	}
 	rewriteBoolFlagArgs()
 	if !enableTerminalANSI() || os.Getenv("NO_COLOR") != "" || hasNoColorArg() {
 		disableANSIColors()
 	}
 	cliCfg := registerCLIFlags()
 
-	flag.IntVar(&listenPort, "port", 13335, "服务监听端口")
+	flag.IntVar(&listenPort, "port", desktopDefaultPort(), "服务监听端口")
 	flag.StringVar(&listenHost, "host", "", "服务监听地址；留空监听全部地址，Android APK 建议使用 127.0.0.1")
+	flag.BoolVar(&desktopMode, "desktop", desktopBuild == "true", "Windows 独立桌面窗口模式")
 	flag.StringVar(&speedTestURL, "url", autoSpeedURLValue, "测速下载地址；auto 表示由后端自动选择内置测速源")
 	flag.BoolVar(&skipGeoCheck, "skipgeo", false, "跳过地区/代理环境验证")
 	flag.StringVar(&customDNSServer, "dns", defaultDNSServers, "自定义 DNS 服务器，例如 223.5.5.5、8.8.8.8:53 或逗号分隔多个；默认系统 DNS 优先、失败回退到该内置 DNS，显式提供时强制使用指定 DNS")
@@ -156,6 +194,13 @@ func main() {
 	flag.StringVar(&webPassword, "password", "", "Web 认证密码（需同时设置 -user）")
 	flag.IntVar(&webSessionMinutes, "session", 720, "Web 登录会话有效期（分钟）")
 	flag.Parse()
+	if cliCfg.enabled {
+		desktopMode = false
+	}
+	if desktopMode && strings.TrimSpace(listenHost) == "" {
+		// A desktop process never needs to expose its control surface to the LAN.
+		listenHost = "127.0.0.1"
+	}
 	if debugMode && flag.NArg() > 0 {
 		for _, arg := range flag.Args() {
 			if normalizeDebugLevel(arg) == "all" {
@@ -243,11 +288,17 @@ func main() {
 	}))
 	http.HandleFunc("/ws", requireAuth(handleWebSocket))
 
-	addr := fmt.Sprintf(":%d", listenPort)
-	displayHost := "localhost"
-	if strings.TrimSpace(listenHost) != "" {
-		addr = fmt.Sprintf("%s:%d", strings.TrimSpace(listenHost), listenPort)
-		displayHost = strings.TrimSpace(listenHost)
+	addr, displayHost := resolveListenAddress(listenHost, listenPort)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		fmt.Printf("启动失败: %v\n", err)
+		if desktopMode {
+			showDesktopError("CFData Desktop", fmt.Sprintf("无法启动本地服务: %v", err))
+		}
+		return
+	}
+	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
+		listenPort = tcpAddr.Port
 	}
 	fmt.Printf("CFData-WEB 版本: %s\n", appVersion)
 	go checkAndPrintUpdate("")
@@ -275,12 +326,28 @@ func main() {
 		fmt.Printf("调试日志: %s\n", defaultDebugLogPath())
 	}
 	fmt.Printf("服务启动于 %s\n", displayURL)
-	fmt.Printf("服务启动成功，复制 %s 到浏览器打开\n", displayURL)
 	server := &http.Server{
 		Addr:              addr,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	if err := server.ListenAndServe(); err != nil {
+	shutdownServer := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}
+	setDesktopUpdateShutdown(shutdownServer)
+	if desktopMode {
+		fmt.Printf("正在打开桌面窗口: %s\n", displayURL)
+		if err := launchDesktopWindow(displayURL, shutdownServer); err != nil {
+			_ = listener.Close()
+			fmt.Printf("桌面窗口启动失败: %v\n", err)
+			showDesktopError("CFData Desktop", fmt.Sprintf("无法打开桌面窗口: %v", err))
+			return
+		}
+	} else {
+		fmt.Printf("服务启动成功，复制 %s 到浏览器打开\n", displayURL)
+	}
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Printf("启动失败: %v\n", err)
 	}
 }

@@ -220,6 +220,30 @@
             margin-left: 8px;
         }
 
+        .version-line .desktop-update-btn {
+            appearance: none;
+            margin-left: 8px;
+            padding: 3px 8px;
+            border: 1px solid var(--warning-color);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--warning-color);
+            font: inherit;
+            font-weight: 700;
+            line-height: 1.25;
+            cursor: pointer;
+        }
+
+        .version-line .desktop-update-btn:hover:not(:disabled) {
+            background: var(--warning-color);
+            color: #1f2937;
+        }
+
+        .version-line .desktop-update-btn:disabled {
+            cursor: wait;
+            opacity: 0.65;
+        }
+
         .status-bar {
             margin-bottom: 16px;
             padding: 12px 16px;
@@ -2315,6 +2339,7 @@
 
     <script>
         let ws;
+        let oneClickUpdateInProgress = false;
         let defaultSpeedTestUrl = "speed.okl.abrdns.com";
         let isTaskRunning = false;
         let isStoppingTask = false;
@@ -5748,6 +5773,15 @@
                 case 'version_info':
                     renderVersionInfo(msg.data || {});
                     break;
+                case 'desktop_update_status':
+                    handleDesktopUpdateStatus(msg.data || {});
+                    break;
+                case 'desktop_update_ready':
+                    handleDesktopUpdateReady(msg.data || {});
+                    break;
+                case 'desktop_update_error':
+                    handleDesktopUpdateError(msg.data || {});
+                    break;
                 case 'proxy_country_result':
                     handleProxyCountryResult(msg.data || {});
                     break;
@@ -6102,6 +6136,55 @@
             }
         }
 
+        function startOneClickUpdate() {
+            if (oneClickUpdateInProgress) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showNoticeCard('与服务端的连接尚未就绪，请稍后再试', '无法开始更新');
+                return;
+            }
+            showConfirmCard('将下载专用桌面安装包，完成 SHA-256 校验后自动重启程序。请先保存正在使用的数据。', () => {
+                if (oneClickUpdateInProgress) return;
+                oneClickUpdateInProgress = true;
+                setOneClickUpdateButtonState();
+                if (!wsSend({ type: 'start_desktop_update', data: {} })) {
+                    oneClickUpdateInProgress = false;
+                    setOneClickUpdateButtonState();
+                    showNoticeCard('无法向服务端发送更新请求，请重试', '更新失败');
+                }
+            }, '确认一键更新');
+        }
+
+        function setOneClickUpdateButtonState(message) {
+            const button = document.getElementById('oneClickUpdateButton');
+            if (!button) return;
+            button.disabled = oneClickUpdateInProgress;
+            button.textContent = oneClickUpdateInProgress ? (message || '更新准备中...') : '一键更新';
+        }
+
+        function handleDesktopUpdateStatus(data) {
+            const message = String(data.message || '正在准备桌面更新');
+            oneClickUpdateInProgress = true;
+            setOneClickUpdateButtonState(message);
+            log(`桌面更新: ${message}`);
+        }
+
+        function handleDesktopUpdateReady(data) {
+            const version = data.version ? ` ${data.version}` : '';
+            oneClickUpdateInProgress = true;
+            setOneClickUpdateButtonState('即将重启...');
+            log(`桌面更新已准备完成${version}，正在重启程序`);
+            showNoticeCard(`更新包已校验完成，将重启到${version || '新版本'}。`, '正在更新');
+            window.setTimeout(() => window.close(), 1000);
+        }
+
+        function handleDesktopUpdateError(data) {
+            const message = String(data.message || '桌面更新失败，请稍后重试');
+            oneClickUpdateInProgress = false;
+            setOneClickUpdateButtonState();
+            log(message);
+            showNoticeCard(message, '更新失败');
+        }
+
         function renderVersionInfo(data) {
             const el = document.getElementById('versionLine');
             if (!el) return;
@@ -6110,11 +6193,16 @@
             const releaseURL = data.releaseURL || 'https://github.com/PoemMisty/CFData-WEB/releases/latest';
             let html = escapeHTML(version);
             if (data.hasUpdate && latest) {
-                html += ` <a href="${releaseURL}" target="_blank" rel="noopener noreferrer">发现新版本 ${escapeHTML(latest)}</a>`;
+                html += ` <span>发现新版本 ${escapeHTML(latest)}</span>`;
+                if (data.oneClickUpdate) {
+                    html += ' <button type="button" class="desktop-update-btn" id="oneClickUpdateButton" onclick="startOneClickUpdate()" title="下载、校验并自动重启到新版本">一键更新</button>';
+                }
+                html += ` <a href="${escapeHTML(releaseURL)}" target="_blank" rel="noopener noreferrer">发布页</a>`;
             } else if (data.error) {
                 html += ` <span id="versionCheckError">更新检测失败</span>`;
             }
             el.innerHTML = html;
+            setOneClickUpdateButtonState();
             if (data.error) {
                 window.clearTimeout(renderVersionInfo.errorTimer);
                 renderVersionInfo.errorTimer = window.setTimeout(() => {
