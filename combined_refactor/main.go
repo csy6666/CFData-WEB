@@ -37,7 +37,7 @@ type releaseAsset struct {
 }
 
 func getLatestRelease(ctx context.Context) (latestReleaseInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/PoemMisty/CFData-WEB/releases/latest", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestReleaseAPIURL, nil)
 	if err != nil {
 		return latestReleaseInfo{}, err
 	}
