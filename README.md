@@ -28,6 +28,16 @@ CFData-Web 是一个基于 Go 的 Cloudflare IP 测试与筛选工具，提供�
 
 浏览器打开终端中的地址即可使用。
 
+## Android arm64-v8a APK
+
+Android APK 复用本地 Go 后端和 WebView 界面，仅打包 `arm64-v8a`。安装 Android SDK 与 Android Studio JBR 后运行：
+
+```powershell
+.\scripts\build-android-arm64.ps1 -Version v1.7.9 -VersionCode 2
+```
+
+输出为 `release_assets/CFData-Android-v1.7.9-arm64-v8a-debug.apk`。构建正式签名包时使用 `-BuildType Release`，并设置 `ANDROID_KEYSTORE_FILE`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和 `ANDROID_KEY_PASSWORD` 环境变量。
+
 CLI 模式：
 
 ```bash
