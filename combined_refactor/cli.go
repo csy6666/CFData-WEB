@@ -50,19 +50,26 @@ type cliConfig struct {
 }
 
 type cliExportConfig struct {
-	ConfigFile  string `json:"-"`
-	Format      string `json:"format"`
-	Fields      string `json:"fields"`
-	Custom      string `json:"custom"`
-	GitHub      bool   `json:"github"`
-	GitHubSet   bool   `json:"-"`
-	GHRepo      string `json:"ghrepo"`
-	GHBranch    string `json:"ghbranch"`
-	GHPath      string `json:"ghpath"`
-	GHMessage   string `json:"ghmessage"`
-	GHToken     string `json:"ghtoken"`
-	GHTokenFile string `json:"ghtokenfile"`
-	GHUpload    string `json:"ghupload"`
+	ConfigFile    string `json:"-"`
+	Format        string `json:"format"`
+	Fields        string `json:"fields"`
+	Custom        string `json:"custom"`
+	V6Bracket     bool   `json:"v6bracket"`
+	V6BracketSet  bool   `json:"-"`
+	GitHub        bool   `json:"github"`
+	GitHubSet     bool   `json:"-"`
+	GHRepo        string `json:"ghrepo"`
+	GHBranch      string `json:"ghbranch"`
+	GHPath        string `json:"ghpath"`
+	GHMessage     string `json:"ghmessage"`
+	GHToken       string `json:"ghtoken"`
+	GHTokenFile   string `json:"ghtokenfile"`
+	GHUpload      string `json:"ghupload"`
+	EdgeTunnel    bool   `json:"edgetunnel"`
+	EdgeTunnelSet bool   `json:"-"`
+	ETHost        string `json:"ethost"`
+	ETPassword    string `json:"etpassword"`
+	ETMode        string `json:"etmode"`
 }
 
 type cliFileConfig struct {
@@ -98,6 +105,7 @@ type cliFileConfig struct {
 	Format          string  `json:"format"`
 	Fields          string  `json:"fields"`
 	Custom          string  `json:"custom"`
+	V6Bracket       bool    `json:"v6bracket"`
 	GitHub          bool    `json:"github"`
 	GHRepo          string  `json:"ghrepo"`
 	GHBranch        string  `json:"ghbranch"`
@@ -106,6 +114,10 @@ type cliFileConfig struct {
 	GHToken         string  `json:"ghtoken"`
 	GHTokenFile     string  `json:"ghtokenfile"`
 	GHUpload        string  `json:"ghupload"`
+	EdgeTunnel      bool    `json:"edgetunnel"`
+	ETHost          string  `json:"ethost"`
+	ETPassword      string  `json:"etpassword"`
+	ETMode          string  `json:"etmode"`
 }
 
 type cliResultRow map[string]string
@@ -132,6 +144,7 @@ var cliResultFields = []cliResultField{
 	{Key: "speed", Label: "下载速度"},
 	{Key: "outboundIP", Label: "出站IP"},
 	{Key: "ipType", Label: "IP类型"},
+	{Key: "originalInput", Label: "原始输入"},
 	{Key: "dc", Label: "数据中心"},
 	{Key: "dcCountry", Label: "落地区域"},
 	{Key: "loc", Label: "源IP位置"},
@@ -193,6 +206,10 @@ var (
 		{name: "ghtoken", description: "GitHub token（不推荐直接写入配置；强烈建议使用仅限制指定仓库读写权限的 token，并确保仓库内无重要数据）", defaultValue: ""},
 		{name: "ghtokenfile", description: "GitHub token 文件路径（强烈建议文件内 token 仅限制指定仓库读写权限，并确保仓库内无重要数据）", defaultValue: ""},
 		{name: "ghupload", description: "快速上传指定文件到 GitHub，不执行测试；需配合 -github", defaultValue: ""},
+		{name: "edgetunnel", description: "CLI 导出后上传到 edgetunnel", defaultValue: "false"},
+		{name: "ethost", description: "edgetunnel 主机地址，例如 https://example.com", defaultValue: ""},
+		{name: "etpassword", description: "edgetunnel 密码", defaultValue: ""},
+		{name: "etmode", description: "edgetunnel 上传模式：overwrite 覆盖 / append 追加", defaultValue: "overwrite"},
 	}
 	cliOfficialFlags = []cliFlagInfo{
 		{name: "offiptype", description: "官方模式 IP 类型：4 或 6", defaultValue: "4"},
@@ -257,6 +274,7 @@ func registerCLIFlags() *cliConfig {
 	flag.StringVar(&cfg.export.Format, "format", "", "CLI 导出格式：csv 或 txt")
 	flag.StringVar(&cfg.export.Fields, "fields", "", "CLI 导出字段：compact、all、ipport 或逗号分隔字段 key")
 	flag.StringVar(&cfg.export.Custom, "custom", "", "CLI 自定义导出字段，格式 标题:内容，多项用逗号分隔")
+	flag.BoolVar(&cfg.export.V6Bracket, "v6bracket", true, "TXT 导出时对 IPv6 地址加方括号（[IPv6]:端口）")
 	flag.BoolVar(&cfg.export.GitHub, "github", false, "CLI 导出后上传到 GitHub")
 	flag.StringVar(&cfg.export.GHRepo, "ghrepo", "", "GitHub 仓库 owner/repo")
 	flag.StringVar(&cfg.export.GHBranch, "ghbranch", "", "GitHub 分支")
@@ -265,6 +283,10 @@ func registerCLIFlags() *cliConfig {
 	flag.StringVar(&cfg.export.GHToken, "ghtoken", "", "GitHub token")
 	flag.StringVar(&cfg.export.GHTokenFile, "ghtokenfile", "", "GitHub token 文件")
 	flag.StringVar(&cfg.export.GHUpload, "ghupload", "", "快速上传指定文件到 GitHub，不执行测试")
+	flag.BoolVar(&cfg.export.EdgeTunnel, "edgetunnel", false, "CLI 导出后上传到 edgetunnel")
+	flag.StringVar(&cfg.export.ETHost, "ethost", "", "edgetunnel 主机地址")
+	flag.StringVar(&cfg.export.ETPassword, "etpassword", "", "edgetunnel 密码")
+	flag.StringVar(&cfg.export.ETMode, "etmode", "overwrite", "edgetunnel 上传模式：overwrite 覆盖 / append 追加")
 	return cfg
 }
 
@@ -392,6 +414,17 @@ func resolveCLIExportConfig(cfg *cliConfig) error {
 		envCfg.GitHub = parseBoolEnv(value)
 		envCfg.GitHubSet = true
 	}
+	if value := strings.TrimSpace(os.Getenv("CFDATA_V6BRACKET")); value != "" {
+		envCfg.V6Bracket = parseBoolEnv(value)
+		envCfg.V6BracketSet = true
+	}
+	envCfg.ETHost = os.Getenv("CFDATA_ETHOST")
+	envCfg.ETPassword = os.Getenv("CFDATA_ETPASSWORD")
+	envCfg.ETMode = os.Getenv("CFDATA_ETMODE")
+	if value := strings.TrimSpace(os.Getenv("CFDATA_EDGETUNNEL")); value != "" {
+		envCfg.EdgeTunnel = parseBoolEnv(value)
+		envCfg.EdgeTunnelSet = true
+	}
 	applyCLIEnvConfig(cfg, provided)
 	merged := defaultCLIExportConfig()
 	mergeCLIExportConfig(&merged, envCfg, false)
@@ -500,15 +533,15 @@ func applyCLIEnvConfig(cfg *cliConfig, provided map[string]bool) {
 }
 
 func defaultCLIExportConfig() cliExportConfig {
-	return cliExportConfig{Format: "txt", Fields: "compact", Custom: "", GitHub: false, GHBranch: "main", GHPath: "", GHMessage: "update cfdata results"}
+	return cliExportConfig{Format: "txt", Fields: "compact", Custom: "", V6Bracket: true, GitHub: false, GHBranch: "main", GHPath: "", GHMessage: "update cfdata results", EdgeTunnel: false, ETMode: "overwrite"}
 }
 
 func defaultCLIFileConfig() cliFileConfig {
-	return cliFileConfig{CLI: true, Mode: "official", ScanMode: "tcping", IPType: 4, Threads: 100, Out: "ip.csv", SpeedTest: 0, Progress: true, NoColor: false, URL: autoSpeedURLValue, DNS: defaultDNSServers, Debug: false, CompactIPv4: false, TestPort: 443, Delay: 500, DC: "", SpeedLimit: 5, SpeedMin: 0.1, File: "", SourceURL: "", NSBFallbackPort: 0, NSBIPType: "all", NSBQualified: false, NSBDC: "", TLS: true, Compact: true, ResultLimit: 1000, NSBSpeedMin: 0.1, NSBSpeedLimit: 5, Format: "txt", Fields: "compact", Custom: "", GitHub: false, GHBranch: "main", GHPath: "", GHMessage: "update cfdata results"}
+	return cliFileConfig{CLI: true, Mode: "official", ScanMode: "tcping", IPType: 4, Threads: 100, Out: "ip.csv", SpeedTest: 0, Progress: true, NoColor: false, URL: autoSpeedURLValue, DNS: defaultDNSServers, Debug: false, CompactIPv4: false, TestPort: 443, Delay: 500, DC: "", SpeedLimit: 5, SpeedMin: 0.1, File: "", SourceURL: "", NSBFallbackPort: 0, NSBIPType: "all", NSBQualified: false, NSBDC: "", TLS: true, Compact: true, ResultLimit: 1000, NSBSpeedMin: 0.1, NSBSpeedLimit: 5, Format: "txt", Fields: "compact", Custom: "", V6Bracket: true, GitHub: false, GHBranch: "main", GHPath: "", GHMessage: "update cfdata results", EdgeTunnel: false, ETMode: "overwrite"}
 }
 
 func (c cliFileConfig) Export() cliExportConfig {
-	return cliExportConfig{Format: c.Format, Fields: c.Fields, Custom: c.Custom, GitHub: c.GitHub, GitHubSet: true, GHRepo: c.GHRepo, GHBranch: c.GHBranch, GHPath: c.GHPath, GHMessage: c.GHMessage, GHToken: c.GHToken, GHTokenFile: c.GHTokenFile, GHUpload: c.GHUpload}
+	return cliExportConfig{Format: c.Format, Fields: c.Fields, Custom: c.Custom, V6Bracket: c.V6Bracket, V6BracketSet: true, GitHub: c.GitHub, GitHubSet: true, GHRepo: c.GHRepo, GHBranch: c.GHBranch, GHPath: c.GHPath, GHMessage: c.GHMessage, GHToken: c.GHToken, GHTokenFile: c.GHTokenFile, GHUpload: c.GHUpload, EdgeTunnel: c.EdgeTunnel, EdgeTunnelSet: true, ETHost: c.ETHost, ETPassword: c.ETPassword, ETMode: c.ETMode}
 }
 
 type cliExportConfigTemplate struct {
@@ -550,6 +583,10 @@ func mergeCLIExportConfig(dst *cliExportConfig, src cliExportConfig, onlyProvide
 	if isSet("custom", src.Custom) {
 		dst.Custom = src.Custom
 	}
+	if (!onlyProvided && src.V6BracketSet) || (onlyProvided && len(provided) > 0 && provided[0]["v6bracket"]) {
+		dst.V6Bracket = src.V6Bracket
+		dst.V6BracketSet = true
+	}
 	if (!onlyProvided && src.GitHubSet) || (onlyProvided && len(provided) > 0 && provided[0]["github"]) {
 		dst.GitHub = src.GitHub
 		dst.GitHubSet = true
@@ -574,6 +611,19 @@ func mergeCLIExportConfig(dst *cliExportConfig, src cliExportConfig, onlyProvide
 	}
 	if isSet("ghupload", src.GHUpload) {
 		dst.GHUpload = src.GHUpload
+	}
+	if (!onlyProvided && src.EdgeTunnelSet) || (onlyProvided && len(provided) > 0 && provided[0]["edgetunnel"]) {
+		dst.EdgeTunnel = src.EdgeTunnel
+		dst.EdgeTunnelSet = true
+	}
+	if isSet("ethost", src.ETHost) {
+		dst.ETHost = src.ETHost
+	}
+	if isSet("etpassword", src.ETPassword) {
+		dst.ETPassword = src.ETPassword
+	}
+	if isSet("etmode", src.ETMode) {
+		dst.ETMode = src.ETMode
 	}
 }
 
@@ -763,6 +813,7 @@ func buildCLIConfigHelp() []cliConfigHelp {
 		{Name: "format", Description: "导出/上传内容格式", Default: "txt", Options: []string{"csv", "txt"}},
 		{Name: "fields", Description: "导出字段；支持 compact、all、ipport 或逗号分隔字段 key；自定义字段可写在这里排序", Default: "compact", Options: []string{"compact", "all", "ipport", "ipport,dc,loc", "ipport,latency,dc,loc"}},
 		{Name: "custom", Description: "自定义导出字段，格式 标题:内容，多项用逗号分隔；未在 fields 中排序时默认追加到最后。兼容 key=标题:内容", Default: ""},
+		{Name: "v6bracket", Description: "TXT 导出时对 IPv6 地址加方括号（[IPv6]:端口），仅对 IPv6 行生效", Default: "true", Options: []string{"true", "false"}},
 		{Name: "github", Description: "导出后上传到 GitHub", Default: "false", Options: []string{"true", "false"}},
 		{Name: "ghrepo", Description: "GitHub 仓库，格式 owner/repo", Default: ""},
 		{Name: "ghbranch", Description: "GitHub 分支", Default: "main"},
@@ -771,6 +822,10 @@ func buildCLIConfigHelp() []cliConfigHelp {
 		{Name: "ghtoken", Description: "GitHub token；不推荐直接写入配置。强烈建议使用仅限制指定仓库读写权限的 token，并确保仓库内无重要数据，避免 token 泄露造成不必要的意外", Default: ""},
 		{Name: "ghtokenfile", Description: "GitHub token 文件路径。强烈建议文件内 token 仅限制指定仓库读写权限，并确保仓库内无重要数据", Default: ""},
 		{Name: "ghupload", Description: "快速上传指定文件到 GitHub，不执行测试；需 github=true", Default: ""},
+		{Name: "edgetunnel", Description: "导出后上传到 edgetunnel", Default: "false", Options: []string{"true", "false"}},
+		{Name: "ethost", Description: "edgetunnel 主机地址，例如 https://example.com", Default: ""},
+		{Name: "etpassword", Description: "edgetunnel 密码", Default: ""},
+		{Name: "etmode", Description: "edgetunnel 上传模式", Default: "overwrite", Options: []string{"overwrite", "append"}},
 	}
 }
 
@@ -1601,6 +1656,11 @@ func writeCLIExportAndMaybeUpload(cfg *cliConfig, rows []cliResultRow, mode stri
 			return err
 		}
 	}
+	if cfg.export.EdgeTunnel {
+		if err := uploadCLIExportToEdgetunnel(cfg, content); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1612,7 +1672,13 @@ func formatCLIResults(rows []cliResultRow, cfg cliExportConfig) (string, error) 
 		var b strings.Builder
 		for _, row := range rows {
 			ipport := row["ipport"]
-			if ipport == "" {
+			if ip := strings.TrimSpace(row["ip"]); ip != "" {
+				if cfg.V6Bracket && strings.Contains(ip, ":") {
+					ipport = "[" + ip + "]:" + row["port"]
+				} else {
+					ipport = ip + ":" + row["port"]
+				}
+			} else if ipport == "" {
 				ipport = row["ip"] + ":" + row["port"]
 			}
 			extras := make([]string, 0, len(fields))
@@ -1689,7 +1755,7 @@ func resolveCLIFields(spec, format string, rows []cliResultRow, customFields []c
 			}
 			return appendCustomFields([]string{"ip", "port", "latency", "dc", "region", "city"})
 		}
-		return appendCustomFields([]string{"ip", "port", "tls", "latency", "speed", "outboundIP", "ipType", "dc", "loc", "region", "city", "asnNumber", "asnOrg"})
+		return appendCustomFields([]string{"ip", "port", "tls", "latency", "speed", "outboundIP", "ipType", "originalInput", "dc", "loc", "region", "city", "asnNumber", "asnOrg"})
 	}
 	if spec == "ipport" {
 		return appendCustomFields([]string{"ipport"})
@@ -2012,5 +2078,32 @@ func uploadCLIExportToGitHub(cfg *cliConfig, content string) error {
 		return err
 	}
 	fmt.Printf("%s[github]%s uploaded %s\n", ansiGreen, ansiReset, downloadURL)
+	return nil
+}
+
+func uploadCLIExportToEdgetunnel(cfg *cliConfig, content string) error {
+	if strings.TrimSpace(cfg.export.ETHost) == "" {
+		return fmt.Errorf("启用 -edgetunnel 时需要 -ethost 或 CFDATA_ETHOST")
+	}
+	if strings.TrimSpace(cfg.export.ETPassword) == "" {
+		return fmt.Errorf("启用 -edgetunnel 时需要 -etpassword 或 CFDATA_ETPASSWORD")
+	}
+	mode := cfg.export.ETMode
+	if mode == "" {
+		mode = "overwrite"
+	}
+	params := edgetunnelUploadRequest{
+		Host:     cfg.export.ETHost,
+		Password: cfg.export.ETPassword,
+		Content:  content,
+		Mode:     mode,
+	}
+	err := uploadToEdgetunnel(context.Background(), params, func(msg string) {
+		fmt.Printf("%s[edgetunnel]%s %s\n", ansiYellow, ansiReset, msg)
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s[edgetunnel]%s uploaded\n", ansiGreen, ansiReset)
 	return nil
 }

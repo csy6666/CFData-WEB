@@ -20,7 +20,7 @@ var webUser, webPassword string
 var webSessionMinutes int
 var desktopBuild = "false"
 var desktopMode bool
-var boolFlagNames = []string{"cli", "desktop", "nsbtls", "progress", "nocolor", "compactipv4", "nsbcompact", "github", "nsbqualified", "skipgeo"}
+var boolFlagNames = []string{"cli", "desktop", "nsbtls", "progress", "nocolor", "compactipv4", "nsbcompact", "github", "nsbqualified", "skipgeo", "v6bracket", "edgetunnel"}
 
 type latestReleaseInfo struct {
 	TagName string         `json:"tag_name"`

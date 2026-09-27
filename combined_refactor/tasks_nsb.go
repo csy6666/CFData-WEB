@@ -29,17 +29,53 @@ func resolveHostToIPs(ctx context.Context, host string, maxIPs int) ([]string, e
 	if addr, err := netip.ParseAddr(host); err == nil {
 		return []string{addr.String()}, nil
 	}
-	var resolver *net.Resolver
 	if customResolver != nil && customDNSForced {
-		resolver = customResolver
-	} else {
-		resolver = net.DefaultResolver
+		ips, err := customResolver.LookupIP(ctx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("域名解析失败 %s: %w", host, err)
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("域名 %s 未解析到任何 IP 地址", host)
+		}
+		limit := len(ips)
+		if maxIPs > 0 && limit > maxIPs {
+			limit = maxIPs
+		}
+		result := make([]string, 0, limit)
+		for i := 0; i < limit; i++ {
+			result = append(result, ips[i].String())
+		}
+		return result, nil
 	}
-	ips, err := resolver.LookupIP(ctx, "ip", host)
-	if err != nil {
-		return nil, fmt.Errorf("域名解析失败 %s: %w", host, err)
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+	if err == nil && len(ips) > 0 {
+		limit := len(ips)
+		if maxIPs > 0 && limit > maxIPs {
+			limit = maxIPs
+		}
+		result := make([]string, 0, limit)
+		for i := 0; i < limit; i++ {
+			result = append(result, ips[i].String())
+		}
+		return result, nil
+	}
+	if customResolver == nil {
+		if err != nil {
+			return nil, fmt.Errorf("域名解析失败 %s: %w", host, err)
+		}
+		return nil, fmt.Errorf("域名 %s 未解析到任何 IP 地址", host)
+	}
+	ips, fallbackErr := customResolver.LookupIP(ctx, "ip", host)
+	if fallbackErr != nil {
+		if err != nil {
+			return nil, fmt.Errorf("域名解析失败 %s: %w", host, err)
+		}
+		return nil, fmt.Errorf("域名解析失败 %s: %w", host, fallbackErr)
 	}
 	if len(ips) == 0 {
+		if err != nil {
+			return nil, fmt.Errorf("域名 %s 未解析到任何 IP 地址", host)
+		}
 		return nil, fmt.Errorf("域名 %s 未解析到任何 IP 地址", host)
 	}
 	limit := len(ips)
@@ -606,7 +642,7 @@ done:
 func runNSBTask(ctx context.Context, session *appSession, fileName, fileContent, outFile string, maxThreads, fallbackPort, speedTest int, speedURL string, enableTLS bool, delay int, resultLimit int, targetDC string, speedMin float64, speedLimit int, compact bool, scanMode string) {
 	session.sendWSMessage("log", fmt.Sprintf("开始非标优选：%s", fileName))
 
-	tmpFile, err := os.CreateTemp("", "cfdata-nsb-*.txt")
+	tmpFile, err := os.CreateTemp(".", "cfdata-nsb-*.txt")
 	if err != nil {
 		session.sendWSMessage("error", "无法创建临时文件: "+err.Error())
 		return
@@ -664,19 +700,12 @@ func runNSBTask(ctx context.Context, session *appSession, fileName, fileContent,
 			}
 			continue
 		}
-		isDomain := strings.ContainsFunc(host, func(r rune) bool {
-			return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
-		}) || (len(resolvedIPs) == 1 && resolvedIPs[0] != host)
 		for _, ip := range resolvedIPs {
-			originalInput := ""
-			if isDomain {
-				originalInput = host
-			}
 			expandedEntries = append(expandedEntries, struct {
 				ip            string
 				port          int
 				originalInput string
-			}{ip, port, originalInput})
+			}{ip, port, host})
 		}
 	}
 
@@ -947,28 +976,29 @@ func nsbMessageToResult(row nsbScanMessage) (iptestResult, bool) {
 		return iptestResult{}, false
 	}
 	return iptestResult{
-		ipAddr:      strings.TrimSpace(row.IP),
-		port:        port,
-		dataCenter:  row.DC,
-		locCode:     row.Loc,
-		region:      row.Region,
-		city:        row.City,
-		latency:     row.Latency,
-		lossRate:    parsePercent(row.LossRate),
-		outboundIP:  row.OutboundIP,
-		ipType:      row.IPType,
-		asnNumber:   row.ASNNumber,
-		asnOrg:      row.ASNOrg,
-		visitScheme: firstNonEmpty(row.VisitScheme, mapBoolTLS(row.TLS)),
-		tlsVersion:  row.TLSVersion,
-		sni:         row.SNI,
-		httpVersion: row.HTTPVersion,
-		warp:        row.Warp,
-		gateway:     row.Gateway,
-		rbi:         row.RBI,
-		kex:         row.Kex,
-		timestamp:   row.Timestamp,
-		speedText:   row.Speed,
+		ipAddr:       strings.TrimSpace(row.IP),
+		port:         port,
+		dataCenter:   row.DC,
+		locCode:      row.Loc,
+		region:       row.Region,
+		city:         row.City,
+		latency:      row.Latency,
+		lossRate:     parsePercent(row.LossRate),
+		outboundIP:   row.OutboundIP,
+		ipType:       row.IPType,
+		asnNumber:    row.ASNNumber,
+		asnOrg:       row.ASNOrg,
+		visitScheme:  firstNonEmpty(row.VisitScheme, mapBoolTLS(row.TLS)),
+		tlsVersion:   row.TLSVersion,
+		sni:          row.SNI,
+		httpVersion:  row.HTTPVersion,
+		warp:         row.Warp,
+		gateway:      row.Gateway,
+		rbi:          row.RBI,
+		kex:          row.Kex,
+		timestamp:    row.Timestamp,
+		speedText:    row.Speed,
+		originalInput: row.OriginalInput,
 	}, true
 }
 
@@ -1142,9 +1172,9 @@ func nsbCSVRows(results []iptestResult, includeSpeed bool, compact bool, scanMod
 
 func nsbCSVHeaders(compact bool, scanMode string) []string {
 	if compact {
-		return []string{"IP地址", "OriginalInput", "端口号", "TLS", "丢包率", "扫描方式", "网络延迟", "下载速度", "出站IP", "IP类型", "数据中心", "源IP位置", "地区", "城市", "ASN号码", "ASN组织"}
+		return []string{"IP地址", "端口号", "TLS", "丢包率", "扫描方式", "网络延迟", "下载速度", "出站IP", "IP类型", "原始输入", "数据中心", "源IP位置", "地区", "城市", "ASN号码", "ASN组织"}
 	}
-	headers := []string{"IP地址", "OriginalInput", "端口号", "TLS", "丢包率", "扫描方式", "网络延迟", "下载速度", "出站IP", "IP类型", "数据中心", "源IP位置", "地区", "城市", "ASN号码", "ASN组织"}
+	headers := []string{"IP地址", "端口号", "TLS", "丢包率", "扫描方式", "网络延迟", "下载速度", "出站IP", "IP类型", "原始输入", "数据中心", "源IP位置", "地区", "城市", "ASN号码", "ASN组织"}
 	headers = append(headers, "访问协议", "TLS版本", "SNI", "HTTP版本", "WARP", "Gateway", "RBI", "密钥交换", "时间戳")
 	return headers
 }
@@ -1164,7 +1194,6 @@ func nsbCSVRow(res iptestResult, includeSpeed bool, compact bool, scanMode strin
 	if compact {
 		return []string{
 			res.ipAddr,
-			res.originalInput,
 			strconv.Itoa(res.port),
 			strconv.FormatBool(res.visitScheme == "https"),
 			fmt.Sprintf("%.0f%%", res.lossRate*100),
@@ -1173,6 +1202,7 @@ func nsbCSVRow(res iptestResult, includeSpeed bool, compact bool, scanMode strin
 			speed,
 			res.outboundIP,
 			res.ipType,
+			res.originalInput,
 			res.dataCenter,
 			res.locCode,
 			res.region,
@@ -1183,7 +1213,6 @@ func nsbCSVRow(res iptestResult, includeSpeed bool, compact bool, scanMode strin
 	}
 	row := []string{
 		res.ipAddr,
-		res.originalInput,
 		strconv.Itoa(res.port),
 		strconv.FormatBool(res.visitScheme == "https"),
 		fmt.Sprintf("%.0f%%", res.lossRate*100),
@@ -1192,6 +1221,7 @@ func nsbCSVRow(res iptestResult, includeSpeed bool, compact bool, scanMode strin
 		speed,
 		res.outboundIP,
 		res.ipType,
+		res.originalInput,
 		res.dataCenter,
 		res.locCode,
 		res.region,

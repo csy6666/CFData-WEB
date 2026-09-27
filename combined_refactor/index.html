@@ -1255,6 +1255,9 @@
 
         .inline-check input {
             width: auto;
+            margin: 0;
+            vertical-align: middle;
+            flex-shrink: 0;
         }
 
         .result-preview,
@@ -1446,7 +1449,7 @@
 
             .inline-check {
                 display: flex;
-                align-items: flex-start;
+                align-items: center;
                 white-space: normal;
             }
 
@@ -2099,8 +2102,8 @@
                     <div class="modal-field" id="resultQualifiedFilterField">
                         <label>导出合格结果</label>
                         <select id="resultQualifiedFilter" onchange="updateResultPreview()">
-                            <option value="all">导出全部结果</option>
-                            <option value="qualified" selected>仅导出合格</option>
+                            <option value="all" selected>导出全部结果</option>
+                            <option value="qualified">仅导出合格</option>
                             <option value="unqualified">仅导出不合格</option>
                         </select>
                     </div>
@@ -2141,6 +2144,9 @@
                             <input id="resultTextSeparatorCustom" type="text" value="-" placeholder="自定义分隔符" oninput="markTextSeparatorCustom('result')">
                         </div>
                     </div>
+                    <div class="modal-field full" id="resultIPv6BracketsField">
+                        <label class="inline-check"><input type="checkbox" id="resultIPv6Brackets" checked onchange="updateResultPreview()"> IPv6 地址添加方括号</label>
+                    </div>
                     <div class="modal-field full">
                         <label>输出顺序</label>
                         <div class="order-list" id="resultOrderList"></div>
@@ -2177,8 +2183,7 @@
                         <input id="githubMessage" type="text" value="update cfdata results">
                     </div>
                     <div class="modal-field full github-field">
-                        <label class="inline-check"><input id="githubSaveToken" type="checkbox"> 保存 token 到本机浏览器（使用
-                            WebCrypto 加密存储，同时保存 SHA-256 指纹）</label>
+                        <label class="inline-check"><input id="githubSaveToken" type="checkbox"> 保存 token 到本机浏览器（使用 WebCrypto 加密存储）</label>
                     </div>
                     <div class="modal-field full github-field">
                         <label>快速上传指定文件（不使用上方结果内容）</label>
@@ -2188,11 +2193,46 @@
                         <label>上传状态</label>
                         <div class="upload-status" id="githubUploadStatus">等待上传</div>
                     </div>
+                    <div class="modal-field edgetunnel-field">
+                        <label>edgetunnel 账户</label>
+                        <div class="github-account-row">
+                            <select id="edgetunnelAccountSelect" onchange="loadSelectedEdgetunnelAccount()"></select>
+                            <button class="action-btn" onclick="deleteSelectedEdgetunnelAccount()">删除</button>
+                        </div>
+                    </div>
+                    <div class="modal-field edgetunnel-field">
+                        <label>账户名称</label>
+                        <input id="edgetunnelAccountName" type="text" placeholder="例如 main-tunnel">
+                    </div>
+                    <div class="modal-field edgetunnel-field">
+                        <label>edgetunnel 域名</label>
+                        <input id="edgetunnelHost" type="text" placeholder="https://example.com">
+                    </div>
+                    <div class="modal-field edgetunnel-field">
+                        <label>密码</label>
+                        <input id="edgetunnelPassword" type="password" autocomplete="off" placeholder="edgetunnel 密码">
+                    </div>
+                    <div class="modal-field edgetunnel-field">
+                        <label>上传模式</label>
+                        <select id="edgetunnelMode">
+                            <option value="overwrite">覆盖上传</option>
+                            <option value="append">追加上传</option>
+                        </select>
+                    </div>
+                    <div class="modal-field full edgetunnel-field">
+                        <label class="inline-check"><input id="edgetunnelSavePassword" type="checkbox"> 保存密码到本机浏览器（使用 WebCrypto 加密存储）</label>
+                    </div>
+                    <div class="modal-field full edgetunnel-field">
+                        <label>上传状态</label>
+                        <div class="upload-status" id="edgetunnelUploadStatus">等待上传</div>
+                    </div>
                 </div>
             </div>
             <div class="modal-actions footer">
                 <button class="action-btn export-btn" onclick="downloadSelectedResults()">导出文件</button>
                 <button class="action-btn export-btn" onclick="uploadSelectedResultsToGitHub()">上传 GitHub</button>
+                <button class="action-btn export-btn" onclick="confirmEdgetunnelUpload('append')">上传 edgetunnel-追加</button>
+                <button class="action-btn export-btn" onclick="confirmEdgetunnelUpload('overwrite')">上传 edgetunnel-覆盖</button>
             </div>
         </div>
     </div>
@@ -2224,8 +2264,8 @@
                     <div class="modal-field" id="copyQualifiedFilterField">
                         <label>复制合格结果</label>
                         <select id="copyQualifiedFilter" onchange="updateCopyPreview()">
-                            <option value="all">复制全部结果</option>
-                            <option value="qualified" selected>仅复制合格</option>
+                            <option value="all" selected>复制全部结果</option>
+                            <option value="qualified">仅复制合格</option>
                             <option value="unqualified">仅复制不合格</option>
                         </select>
                     </div>
@@ -2265,6 +2305,9 @@
                             </select>
                             <input id="copyTextSeparatorCustom" type="text" value="-" placeholder="自定义分隔符" oninput="markTextSeparatorCustom('copy')">
                         </div>
+                    </div>
+                    <div class="modal-field full" id="copyIPv6BracketsField">
+                        <label class="inline-check"><input type="checkbox" id="copyIPv6Brackets" checked onchange="updateCopyPreview()"> IPv6 地址添加方括号</label>
                     </div>
                     <div class="modal-field full">
                         <label>输出顺序</label>
@@ -2409,6 +2452,8 @@
         const githubAccountStorageKey = 'cfdata-github-accounts';
         const githubSessionTokens = new Map();
         const githubTokenCryptoSalt = 'cfdata-github-token-v1';
+        const edgetunnelAccountStorageKey = 'cfdata-edgetunnel-accounts';
+        const edgetunnelSessionPasswords = new Map();
 
         const LATENCY_COLORS = [
             { end: 50, color: '#1f8a3b' },
@@ -3889,7 +3934,7 @@
             tbody.innerHTML = '';
             renderScanHeaders('nsb');
             const visibleHeaders = filterNSBHeaders(headers);
-            const originalInputIndex = headers.map(normalizeNSBHeader).indexOf('OriginalInput');
+            const originalInputIndex = headers.map(normalizeNSBHeader).indexOf('原始输入');
 
             const filteredRows = filterNSBRowsByQualified(filterNSBRowsByIPType(headers, rows, nsbTableIPTypeFilter), headers, nsbTableQualifiedFilter);
             filteredRows.forEach((r) => {
@@ -3904,49 +3949,42 @@
             updateNSBSpeedButtons();
         }
 
-        const NSB_LIVE_HEADERS = ['IP地址', 'OriginalInput', '端口号', 'TLS', '丢包率', '扫描方式', '网络延迟', '下载速度', '出站IP', 'IP类型', '数据中心', '源IP位置', '地区', '城市', 'ASN号码', 'ASN组织', '访问协议', 'TLS版本', 'SNI', 'HTTP版本', 'WARP', 'Gateway', 'RBI', '密钥交换', '时间戳'];
-        const NSB_COMPACT_HEADERS = ['IP地址', 'OriginalInput', '端口号', 'TLS', '丢包率', '扫描方式', '网络延迟', '下载速度', '出站IP', 'IP类型', '数据中心', '源IP位置', '地区', '城市', 'ASN号码', 'ASN组织'];
+        const NSB_LIVE_HEADERS = ['IP地址', '端口号', 'TLS', '丢包率', '扫描方式', '网络延迟', '下载速度', '出站IP', 'IP类型', 'OriginalInput', '数据中心', '源IP位置', '地区', '城市', 'ASN号码', 'ASN组织', '访问协议', 'TLS版本', 'SNI', 'HTTP版本', 'WARP', 'Gateway', 'RBI', '密钥交换', '时间戳'];
+        const NSB_COMPACT_HEADERS = ['IP地址', '端口号', 'TLS', '丢包率', '扫描方式', '网络延迟', '下载速度', '出站IP', 'IP类型', 'OriginalInput', '数据中心', '源IP位置', '地区', '城市', 'ASN号码', 'ASN组织'];
 
         function normalizeNSBHeader(header) {
             if (header === 'IP') return 'IP地址';
             if (header === '端口') return '端口号';
+            if (header === 'OriginalInput') return '原始输入';
             return header;
         }
 
         function filterNSBHeaders(headers) {
-            const normalized = (headers || []).map(normalizeNSBHeader).filter(h => h !== 'OriginalInput');
+            const normalized = (headers || []).map(normalizeNSBHeader);
             if (!nsbCompactView) return normalized;
-            return NSB_COMPACT_HEADERS.filter((h) => normalized.includes(h) && h !== 'OriginalInput');
+            return NSB_COMPACT_HEADERS.map(normalizeNSBHeader).filter((h) => normalized.includes(h));
         }
 
         function filterNSBRow(headers, row) {
             const normalized = (headers || []).map(normalizeNSBHeader);
-            const originalInputIndex = normalized.indexOf('OriginalInput');
-            let filteredRow = row;
-            
-            if (originalInputIndex !== -1) {
-                filteredRow = row.filter((_, idx) => idx !== originalInputIndex);
-            }
-            
-            if (!nsbCompactView) return filteredRow;
-            
-            const adjustedNormalized = normalized.filter(h => h !== 'OriginalInput');
-            return NSB_COMPACT_HEADERS.filter((h) => adjustedNormalized.includes(h) && h !== 'OriginalInput').map((h) => {
-                const idx = adjustedNormalized.indexOf(h);
-                return idx !== -1 ? filteredRow[idx] : '';
+            if (!nsbCompactView) return row;
+            const compactNorm = NSB_COMPACT_HEADERS.map(normalizeNSBHeader);
+            return compactNorm.filter((h) => normalized.includes(h)).map((h) => {
+                const idx = normalized.indexOf(h);
+                return idx !== -1 ? row[idx] : '';
             });
         }
 
         function getVisibleNSBHeaders() {
             if (nsbHeaders.length) return filterNSBHeaders(nsbHeaders);
             const base = nsbCompactView ? NSB_COMPACT_HEADERS : NSB_LIVE_HEADERS;
-            return base.filter(h => h !== 'OriginalInput');
+            return base.map(normalizeNSBHeader);
         }
 
         function nsbRowToArray(row) {
             return [
-                row.ip || '', row.originalInput || '', row.port || '', row.tls ?? '-', row.lossRate || '0%', getScanModeLabel(), row.latency || '-', row.speed || '-',
-                row.outboundIP || '-', row.ipType || '-', row.dc || '-', row.loc || '-',
+                row.ip || '', row.port || '', row.tls ?? '-', row.lossRate || '0%', getScanModeLabel(), row.latency || '-', row.speed || '-',
+                row.outboundIP || '-', row.ipType || '-', row.originalInput || '', row.dc || '-', row.loc || '-',
                 row.region || '-', row.city || '-', row.asnNumber || '-', row.asnOrg || '-',
                 row.visitScheme || '-', row.tlsVersion || '-', row.sni || '-', row.httpVersion || '-',
                 row.warp || '-', row.gateway || '-', row.rbi || '-',
@@ -4057,6 +4095,7 @@
                 下载速度: row.speed || row.Speed || '-',
                 出站IP: row.outboundIP || row.OutboundIP || '-',
                 IP类型: row.ipType || row.IPType || '-',
+                原始输入: row.originalInput || row.OriginalInput || '-',
                 数据中心: row.dc || row.DC || '-',
                 源IP位置: row.loc || row.Loc || '-',
                 地区: row.region || row.Region || '-',
@@ -4795,6 +4834,7 @@
             { key: 'speed', label: '下载速度' },
             { key: 'outboundIP', label: '出站IP' },
             { key: 'ipType', label: 'IP类型' },
+            { key: 'originalInput', label: '原始输入' },
             { key: 'dc', label: '数据中心', txt: true },
             { key: 'dcCountry', label: '落地区域', txt: true },
             { key: 'loc', label: '源IP位置' },
@@ -4829,7 +4869,7 @@
             const qualifiedField = document.getElementById('resultQualifiedFilterField');
             if (qualifiedField) qualifiedField.style.display = '';
             const qualifiedSelect = document.getElementById('resultQualifiedFilter');
-            if (qualifiedSelect) qualifiedSelect.value = 'qualified';
+            if (qualifiedSelect) qualifiedSelect.value = 'all';
             if (!resultFieldOrder.length) resultFieldOrder = getDefaultResultFieldOrder(document.getElementById('resultFormat').value);
             renderGitHubAccounts();
             renderResultFieldOptions();
@@ -4988,7 +5028,7 @@
         }
 
         function getCompactResultFieldOrderFor(mode) {
-            if (mode === 'nsb') return ['ip', 'port', 'tls', 'lossRate', 'latency', 'speed', 'outboundIP', 'ipType', 'dc', 'loc', 'region', 'city', 'asnNumber', 'asnOrg'];
+            if (mode === 'nsb') return ['ip', 'port', 'tls', 'lossRate', 'latency', 'speed', 'outboundIP', 'ipType', 'originalInput', 'dc', 'loc', 'region', 'city', 'asnNumber', 'asnOrg'];
             return getOfficialResultFieldOrder(mode);
         }
 
@@ -5004,9 +5044,12 @@
             if (format === 'txt' && !resultFieldOrder.includes('ipport')) resultFieldOrder.unshift('ipport');
             const separatorField = document.getElementById('resultTextSeparatorField');
             if (separatorField) separatorField.style.display = format === 'txt' ? '' : 'none';
+            const bracketsField = document.getElementById('resultIPv6BracketsField');
+            if (bracketsField) bracketsField.style.display = format === 'txt' ? '' : 'none';
             const rows = getCurrentResultRows(resultModalMode);
             const available = RESULT_FIELDS.filter((f) => f.key === 'ipport' || rows.some((r) => String(r[f.key] ?? '').trim() !== '')).concat(resultCustomFields);
             document.querySelectorAll('.github-field').forEach((el) => el.style.display = '');
+            document.querySelectorAll('.edgetunnel-field').forEach((el) => el.style.display = '');
             document.getElementById('resultFieldPicker').innerHTML = available.map((f) => `<label class="field-pill"><input type="checkbox" value="${f.key}" ${resultFieldOrder.includes(f.key) ? 'checked' : ''} onchange="toggleResultField('${f.key}', this.checked)"> ${f.label}</label>`).join('');
             updateResultFieldQuickButtons();
             renderResultOrderList();
@@ -5193,6 +5236,134 @@
             renderGitHubAccounts();
         }
 
+        function getEdgetunnelAccounts() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem(edgetunnelAccountStorageKey) || '[]');
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+
+        function saveEdgetunnelAccounts(accounts) {
+            localStorage.setItem(edgetunnelAccountStorageKey, JSON.stringify(accounts));
+        }
+
+        function renderEdgetunnelAccounts() {
+            const select = document.getElementById('edgetunnelAccountSelect');
+            const accounts = getEdgetunnelAccounts();
+            const accountOptions = '<option value="">新账户/不使用保存配置</option>' + accounts.map((a, i) => `<option value="${i}">${escapeHTML(a.name || a.host || 'edgetunnel账户')}</option>`).join('');
+            if (select) select.innerHTML = accountOptions;
+        }
+
+        function normalizeEdgetunnelAccountKey(account) {
+            return account?.name || account?.host || '';
+        }
+
+        function loadSelectedEdgetunnelAccount() {
+            const select = document.getElementById('edgetunnelAccountSelect');
+            const idx = parseInt(select.value, 10);
+            if (Number.isNaN(idx)) {
+                clearEdgetunnelAccountInputs();
+                return;
+            }
+            const account = getEdgetunnelAccounts()[idx];
+            if (!account) return;
+            document.getElementById('edgetunnelAccountName').value = account.name || '';
+            document.getElementById('edgetunnelHost').value = account.host || '';
+            document.getElementById('edgetunnelMode').value = account.mode || 'overwrite';
+            document.getElementById('edgetunnelSavePassword').checked = !!account.passwordCipher || !!account.password || edgetunnelSessionPasswords.has(normalizeEdgetunnelAccountKey(account));
+            const accountKey = normalizeEdgetunnelAccountKey(account);
+            const sessionPassword = edgetunnelSessionPasswords.get(accountKey) || '';
+            document.getElementById('edgetunnelPassword').value = sessionPassword;
+            if (!sessionPassword && account.password) {
+                document.getElementById('edgetunnelPassword').value = account.password;
+                edgetunnelSessionPasswords.set(accountKey, account.password);
+            } else if (!sessionPassword && account.passwordCipher) {
+                decryptStoredEdgetunnelPassword(account).then((password) => {
+                    if (password) {
+                        edgetunnelSessionPasswords.set(accountKey, password);
+                        if (document.getElementById('edgetunnelAccountSelect').value === String(idx)) {
+                            document.getElementById('edgetunnelPassword').value = password;
+                        }
+                    }
+                });
+            }
+        }
+
+        function clearEdgetunnelAccountInputs() {
+            ['edgetunnelAccountName', 'edgetunnelHost', 'edgetunnelPassword'].forEach((id) => document.getElementById(id).value = '');
+            document.getElementById('edgetunnelMode').value = 'overwrite';
+            document.getElementById('edgetunnelSavePassword').checked = false;
+        }
+
+        function deleteSelectedEdgetunnelAccount() {
+            const select = document.getElementById('edgetunnelAccountSelect');
+            const idx = parseInt(select.value, 10);
+            if (Number.isNaN(idx)) return;
+            const accounts = getEdgetunnelAccounts();
+            const deleted = accounts[idx];
+            if (deleted) edgetunnelSessionPasswords.delete(normalizeEdgetunnelAccountKey(deleted));
+            accounts.splice(idx, 1);
+            saveEdgetunnelAccounts(accounts);
+            renderEdgetunnelAccounts();
+        }
+
+        async function getEdgetunnelPasswordCryptoKey(accountName) {
+            if (!crypto.subtle) return null;
+            const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(`${location.origin}|${accountName}|cfdata-edgetunnel-token-v1`), 'PBKDF2', false, ['deriveKey']);
+            return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: new TextEncoder().encode('cfdata-edgetunnel-token-v1'), iterations: 120000, hash: 'SHA-256' }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        }
+
+        async function encryptEdgetunnelPassword(accountName, password) {
+            const key = await getEdgetunnelPasswordCryptoKey(accountName);
+            if (!key) return '';
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(password));
+            return bytesToBase64(iv) + ':' + bytesToBase64(new Uint8Array(cipher));
+        }
+
+        async function decryptStoredEdgetunnelPassword(account) {
+            if (!account?.passwordCipher || !crypto.subtle) return '';
+            try {
+                const key = await getEdgetunnelPasswordCryptoKey(normalizeEdgetunnelAccountKey(account));
+                if (!key) return '';
+                const parts = account.passwordCipher.split(':');
+                if (parts.length !== 2) return '';
+                const iv = base64ToBytes(parts[0]);
+                const data = base64ToBytes(parts[1]);
+                const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+                return new TextDecoder().decode(plain);
+            } catch (_) {
+                return '';
+            }
+        }
+
+        async function saveCurrentEdgetunnelAccount() {
+            const name = document.getElementById('edgetunnelAccountName').value.trim() || document.getElementById('edgetunnelHost').value.trim();
+            if (!name) return;
+            const host = document.getElementById('edgetunnelHost').value.trim();
+            const password = document.getElementById('edgetunnelPassword').value.trim();
+            const mode = document.getElementById('edgetunnelMode').value;
+            const rememberPassword = document.getElementById('edgetunnelSavePassword').checked;
+            const accounts = getEdgetunnelAccounts();
+            const next = { name, host, mode };
+            if (rememberPassword && password) {
+                edgetunnelSessionPasswords.set(name, password);
+                next.passwordCipher = await encryptEdgetunnelPassword(name, password);
+                if (!next.passwordCipher) {
+                    showNoticeCard('当前浏览器不支持 WebCrypto，无法安全保存密码；本次仍会上传，但不会持久保存密码');
+                }
+            } else {
+                edgetunnelSessionPasswords.delete(name);
+            }
+            const existing = accounts.findIndex((a) => a.name === name);
+            if (existing >= 0) accounts[existing] = next;
+            else accounts.push(next);
+            saveEdgetunnelAccounts(accounts);
+            renderEdgetunnelAccounts();
+        }
+
         function renderResultOrderList() {
             const byKey = Object.fromEntries(RESULT_FIELDS.concat(resultCustomFields).map((f) => [f.key, f]));
             document.getElementById('resultOrderList').innerHTML = resultFieldOrder.map((key, idx) => `<div class="order-item"><span>${byKey[key]?.label || key}</span><span><button onclick="moveResultField(${idx}, -1)">↑</button> <button onclick="moveResultField(${idx}, 1)">↓</button></span></div>`).join('');
@@ -5307,7 +5478,7 @@
             const qualifiedField = document.getElementById('copyQualifiedFilterField');
             if (qualifiedField) qualifiedField.style.display = '';
             const qualifiedSelect = document.getElementById('copyQualifiedFilter');
-            if (qualifiedSelect) qualifiedSelect.value = 'qualified';
+            if (qualifiedSelect) qualifiedSelect.value = 'all';
             const rows = getCopyRowsBeforeRange();
             if (!rows.length) return showNoticeCard('暂无可复制结果');
             if (!copyFieldOrder.length) copyFieldOrder = getDefaultResultFieldOrderFor(copyModalMode, 'txt');
@@ -5421,7 +5592,7 @@
             const rows = getSelectedCopyRows();
             if (!rows.length) throw new Error('暂无可复制结果');
             const fields = copyFieldOrder.length ? copyFieldOrder : getDefaultResultFieldOrderFor(copyModalMode, 'txt');
-            return buildResultContent('txt', rows, fields, getTextSeparator('copy'));
+            return buildResultContent('txt', rows, fields, getTextSeparator('copy'), useIPv6BracketsFor('copy'));
         }
 
         function buildCopyPreview() {
@@ -5429,7 +5600,7 @@
             if (!rows.length) return '暂无预览';
             const fields = copyFieldOrder.length ? copyFieldOrder : getDefaultResultFieldOrderFor(copyModalMode, 'txt');
             const first = rows[0];
-            const ipport = first.ipport || `${first.ip || ''}:${first.port || ''}`;
+            const ipport = first.ip ? formatIPPort(first.ip, first.port, useIPv6BracketsFor('copy')) : (first.ipport || `${first.ip || ''}:${first.port || ''}`);
             const extras = fields.filter((key) => key !== 'ipport').map((key) => first[key]).filter((value) => String(value ?? '').trim() !== '');
             const separator = getTextSeparator('copy');
             return extras.length ? `${ipport}#${extras.join(separator)}` : ipport;
@@ -5525,7 +5696,7 @@
             const rows = getSelectedResultRows();
             if (!rows.length) throw new Error('暂无可操作结果');
             const fields = resultFieldOrder.length ? resultFieldOrder : getDefaultResultFieldOrder(format);
-            return buildResultContent(format, rows, fields, getTextSeparator('result'));
+            return buildResultContent(format, rows, fields, getTextSeparator('result'), useIPv6BracketsFor('result'));
         }
 
         function applyTextSeparatorPreset(prefix, value) {
@@ -5556,11 +5727,11 @@
             return raw;
         }
 
-        function buildResultContent(format, rows, fields, textSeparator = '-') {
+        function buildResultContent(format, rows, fields, textSeparator = '-', useBrackets = true) {
             if (!rows.length) throw new Error('暂无可操作结果');
             if (format === 'txt') {
                 return rows.map((r) => {
-                    const ipport = r.ipport || `${r.ip || ''}:${r.port || ''}`;
+                    const ipport = r.ip ? formatIPPort(r.ip, r.port, useBrackets) : (r.ipport || `${r.ip || ''}:${r.port || ''}`);
                     const extras = fields.filter((k) => k !== 'ipport').map((k) => r[k]).filter((v) => String(v ?? '').trim() !== '');
                     return extras.length ? `${ipport}#${extras.join(textSeparator)}` : ipport;
                 }).join('\n') + '\n';
@@ -5588,13 +5759,28 @@
             return text;
         }
 
+        function isIPv6Address(ip) {
+            return typeof ip === 'string' && ip.indexOf(':') !== -1;
+        }
+
+        function formatIPPort(ip, port, useBrackets) {
+            const safeIP = String(ip || '');
+            if (!isIPv6Address(safeIP)) return `${safeIP}:${port ?? ''}`;
+            return useBrackets ? `[${safeIP}]:${port ?? ''}` : `${safeIP}:${port ?? ''}`;
+        }
+
+        function useIPv6BracketsFor(prefix) {
+            const el = document.getElementById(`${prefix}IPv6Brackets`);
+            return el ? el.checked : true;
+        }
+
         function buildResultPreview(format) {
             const rows = getSelectedResultRows();
             if (!rows.length) return '暂无预览';
             const fields = resultFieldOrder.length ? resultFieldOrder : getDefaultResultFieldOrder(format);
             const first = rows[0];
             if (format === 'txt') {
-                const ipport = first.ipport || `${first.ip || ''}:${first.port || ''}`;
+                const ipport = first.ip ? formatIPPort(first.ip, first.port, useIPv6BracketsFor('result')) : (first.ipport || `${first.ip || ''}:${first.port || ''}`);
                 const extras = fields.filter((k) => k !== 'ipport').map((k) => first[k]).filter((v) => String(v ?? '').trim() !== '');
                 return extras.length ? `${ipport}#${extras.join(getTextSeparator('result'))}` : ipport;
             }
@@ -5625,6 +5811,44 @@
         function sendGitHubUpload(payload) {
             if (!payload.silent) setGitHubUploadStatus(`第 1/3 次上传中: ${payload.path}`, 'success');
             wsSend({ type: 'github_upload', data: payload });
+        }
+
+        function setEdgetunnelUploadStatus(text, type = '') {
+            const el = document.getElementById('edgetunnelUploadStatus');
+            if (!el) return;
+            el.textContent = text;
+            el.classList.remove('error', 'success');
+            if (type) el.classList.add(type);
+        }
+
+        function confirmEdgetunnelUpload(mode) {
+            const msg = '使用 edgetunnel 上传前，请确认你的 edgetunnel 已将优选订阅模式设置为「自定义订阅」（支持汇聚订阅），否则 edgetunnel 将无法下发正确内容。\n\n另外，不建议上传过多的优选地址，节点并不是越多越好，建议精选延迟低、稳定性好的节点上传。';
+            showConfirmCard(msg, function() {
+                uploadSelectedResultsToEdgetunnel(mode);
+            }, 'edgetunnel 上传提示');
+        }
+
+        async function uploadSelectedResultsToEdgetunnel(mode) {
+            const el = document.getElementById('edgetunnelUploadStatus');
+            el.textContent = '准备上传...';
+            el.className = 'upload-status';
+            const host = document.getElementById('edgetunnelHost').value.trim();
+            const password = document.getElementById('edgetunnelPassword').value.trim();
+            if (!host) return showNoticeCard('Host 不能为空');
+            if (!password) return showNoticeCard('密码不能为空');
+            await saveCurrentEdgetunnelAccount();
+            const format = document.getElementById('resultFormat').value;
+            let content;
+            try {
+                const quickFile = await readQuickUploadFile();
+                content = quickFile ? quickFile.content : buildSelectedResultContent(format);
+            } catch (err) {
+                showNoticeCard(err.message || '暂无可操作结果');
+                return;
+            }
+            setEdgetunnelUploadStatus('正在上传...', 'success');
+            wsSend({ type: 'edgetunnel_upload', data: { host, password, content, mode } });
+            log(`已提交 edgetunnel ${mode === 'append' ? '追加' : '覆盖'}上传请求`);
         }
 
         function renderRawURLCopy(rawURL) {
@@ -5899,6 +6123,26 @@
                         setGitHubUploadStatus(msg.data.message || 'GitHub 上传失败', 'error');
                     }
                     log(msg.data.message || 'GitHub 上传失败');
+                    break;
+
+                case 'edgetunnel_upload_result':
+                    setEdgetunnelUploadStatus('上传成功', 'success');
+                    log('edgetunnel 上传完成');
+                    showNoticeCard('edgetunnel 上传完成');
+                    break;
+
+                case 'edgetunnel_upload_status':
+                    setEdgetunnelUploadStatus(msg.data.message || 'edgetunnel 上传中', 'success');
+                    break;
+
+                case 'edgetunnel_upload_error':
+                    recordWebDebugError('edgetunnel_upload_error', msg.data?.message || msg.data || 'edgetunnel 上传失败');
+                    if (msg.data.silent) {
+                        showNoticeCard(msg.data.message || 'edgetunnel 自动上传失败');
+                    } else {
+                        setEdgetunnelUploadStatus(msg.data.message || 'edgetunnel 上传失败', 'error');
+                    }
+                    log(msg.data.message || 'edgetunnel 上传失败');
                     break;
 
                 case 'nsb_progress':
@@ -6231,6 +6475,7 @@
             connect();
             initializeUI();
             renderGitHubAccounts();
+            renderEdgetunnelAccounts();
             switchMode('official');
             initThemeFromStorage();
         });
